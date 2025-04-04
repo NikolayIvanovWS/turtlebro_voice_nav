@@ -21,14 +21,19 @@
 - Библиотека toml для работы с конфигурационными файлами.
 
 Установите зависимости Python:
+```
 pip3 install toml
+```
 
 ### 2. Клонирование пакета
 Склонируйте репозиторий в рабочую директорию ROS:
+
+```
 cd ~/catkin_ws/src
 git clone https://github.com/your-repository/turtlebro_voice_nav.git
 cd ..
 catkin_make --pkg=turtlebro_voice_nav
+```
 
 ---
 
@@ -37,20 +42,24 @@ catkin_make --pkg=turtlebro_voice_nav
 ### Файл конфигурации комнат
 Координаты комнат задаются в файле конфигурации rooms.toml, который находится в папке data/. Пример содержимого файла:
 
+```
 [rooms]
 стартоваяточка = { x = 0.0, y = 0.0, theta = 0.0 }
 комнатуодин = { x = 1.0, y = 0.0, theta = 30.0 }
 комнатудва = { x = 1.0, y = 1.0, theta = 10.0 }
 комнатутри = { x = 0.0, y = 0.5, theta = 0.0 }
 кабинет = { x = 0.2, y = 0.0, theta = 0.0 }
-
+```
 ---
 
 ## Запуск пакета
 
 ### 1. Запуск пакета голосового управления
 Запустите пакет turtlebro_voice_nav:
+
+```
 roslaunch turtlebro_voice_nav voice_nav.launch
+```
 
 ### 2. Отправка голосовых команд
 Используйте голосовой интерфейс для отправки команд. Например:
@@ -63,7 +72,10 @@ roslaunch turtlebro_voice_nav voice_nav.launch
 
 ### 1. Эмуляция перемещений
 Для тестирования без реального перемещения робота используйте флаг fake_move_base:
+
+```
 roslaunch turtlebro_voice_nav voice_nav.launch fake_move_base:=true
+```
 
 ### 2. Логи
 Проверяйте логи для отслеживания выполнения команд:
