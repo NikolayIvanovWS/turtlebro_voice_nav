@@ -1,0 +1,15 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="fake_move_base" default="false"/>
+
+  <!-- Run Navigation for Patroll -->
+  <include file="$(find turtlebro_patrol)/launch/navigation_slam.launch">
+      <arg name="fake_move_base" value="$(arg fake_move_base)"/>
+  </include>
+
+  <!-- Run voice nav node -->
+  <node pkg="turtlebro_voice_nav" type="voice_nav.py" name="voice_nav_node" output="screen" required="true">
+    <param name="rooms_config_file" value="$(find turtlebro_voice_nav)/data/rooms.toml"/>
+    <param name="commands_config_file" value="$(find turtlebro_voice_nav)/data/commands.toml"/>
+  </node>
+</launch>
