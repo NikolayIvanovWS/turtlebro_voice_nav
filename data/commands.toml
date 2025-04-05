@@ -1,2 +1,2 @@
-[commands]
-prefix = "езжай в"
+[movement_phrases]
+phrases = ["езжай в", "переместись в", "иди в", "двигайся к"]

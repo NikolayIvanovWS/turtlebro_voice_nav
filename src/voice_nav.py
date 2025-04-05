@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import rospy
 import math
 import toml
@@ -17,64 +18,98 @@ class VoiceNav(object):
         self.client = actionlib.SimpleActionClient('move_base', MoveBaseAction)
         rospy.loginfo("Waiting move_base action")
         self.client.wait_for_server()
-        rospy.loginfo(f"Have move_base action")
+        rospy.loginfo("Have move_base action")
+        
+        # Создаем издатель для управления скоростью
         self.cmd_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=5)
+        
+        # Подписываемся на топик с голосовыми командами
         self.voice_sub = rospy.Subscriber('/robohead_controller/voice_recognizer_pocketsphinx/cmds_recognizer/commands', String, self.voice_command_cb)
-        self.load_rooms_config()
-        if 'стартоваяточка' in self.rooms_config['rooms']:
-            self.start_point = self.rooms_config['rooms']['стартоваяточка']
+        
+        # Загружаем конфигурационные файлы
+        self.load_points_config()
+        self.load_commands_config()
+
+        # Проверяем наличие стартовой точки
+        if 'стартовуюточку' in self.points_config['points']:
+            self.start_point = self.points_config['points']['стартовуюточку']
         else:
-            rospy.logerr("Стартовая точка не найдена в конфигурационном файле rooms.toml")
+            rospy.logerr("Стартовая точка не найдена в конфигурационном файле points.toml")
             rospy.signal_shutdown("Стартовая точка не найдена")
-        self.current_point = self.start_point
-        self.goal_sent = False  # Флаг для отслеживания отправки цели
-        self.returning_home = False  # Флаг для отслеживания возвращения в стартовую точку
-        self.is_inspecting = False  # Флаг для отслеживания выполнения команды "осмотрись"
+
+        # Инициализация переменных
+        self.current_point = None  # Текущая комната
+        self.goal_sent = False  # Флаг отправки цели
+        self.returning_home = False  # Флаг возвращения в стартовую точку
+        self.is_inspecting = False  # Флаг выполнения осмотра
         rospy.loginfo("Init done")
 
-    def spin(self):
-        while not rospy.is_shutdown():
-            self.rate.sleep()
+    def load_points_config(self):
+        """Загрузка конфигурации комнат."""
+        config_data_file = rospy.get_param('~points_config_file', str(
+            Path(__file__).parent.absolute()) + '/../data/points.toml')
+        rospy.loginfo(f"Loading points config file {config_data_file}")
+        try:
+            self.points_config = toml.load(config_data_file)
+            rospy.loginfo(f"points config loaded: {self.points_config}")
+        except Exception as e:
+            rospy.logerr(f"TOML parser failed: {e}")
+            rospy.signal_shutdown("No valid TOML file")
+
+    def load_commands_config(self):
+        """Загрузка конфигурации ключевых фраз."""
+        config_data_file = rospy.get_param('~commands_config_file', str(
+            Path(__file__).parent.absolute()) + '/../data/commands.toml')
+        rospy.loginfo(f"Loading commands config file {config_data_file}")
+        try:
+            self.commands_config = toml.load(config_data_file)
+            rospy.loginfo(f"Commands config loaded: {self.commands_config}")
+        except Exception as e:
+            rospy.logerr(f"TOML parser failed: {e}")
+            rospy.signal_shutdown("No valid TOML file")
 
     def voice_command_cb(self, message):
+        """Обработка голосовых команд."""
         command = message.data.strip()
         rospy.loginfo(f"Received command: {command}")
-        if self.is_movement_command(command):
-            room_name = self.get_room_name_from_command(command)
-            if room_name:
-                rospy.loginfo(f"Moving to room: {room_name}")
-                goal = self._goal_message_assemble(self.rooms_config['rooms'][room_name])
-                self.client.send_goal(goal, done_cb=self.move_base_cb)
-                self.goal_sent = True  # Устанавливаем флаг, что цель отправлена
-                self.returning_home = False  # Сбрасываем флаг возвращения в стартовую точку
-                self.is_inspecting = False  # Сбрасываем флаг осмотра
-            else:
-                rospy.loginfo("Room not found")
-        elif self.is_inspect_command(command):
+
+        # Проверка команды на соответствие ключевым фразам для перемещения
+        for phrase in self.commands_config['movement_phrases']['phrases']:
+            if command.startswith(phrase):
+                point_name = self.get_point_name_from_command(command, phrase)
+                if point_name:
+                    rospy.loginfo(f"Moving to point: {point_name}")
+                    self.current_point = point_name  # Сохраняем текущую комнату
+                    goal = self._goal_message_assemble(self.points_config['points'][point_name])
+                    self.client.send_goal(goal, done_cb=self.move_base_cb)
+                    self.goal_sent = True
+                    return
+
+        # Проверка команды "осмотрись"
+        if self.is_inspect_command(command):
             if not self.is_inspecting:
                 rospy.loginfo("Starting inspection sequence")
                 self.is_inspecting = True
                 self.perform_inspection()
-        else:
-            rospy.loginfo("Unknown command")
+            return
 
-    def is_movement_command(self, command):
-        prefix = "езжай в"
-        return command.startswith(prefix)
+        rospy.loginfo("Unknown command")
 
-    def get_room_name_from_command(self, command):
-        prefix = "езжай в"
+    def get_point_name_from_command(self, command, prefix):
+        """Извлечение названия комнаты из команды."""
         if command.startswith(prefix):
-            room_name = command[len(prefix):].strip()
-            if room_name in self.rooms_config['rooms']:
-                return room_name
+            point_name = command[len(prefix):].strip()
+            if point_name in self.points_config['points']:
+                return point_name
         return None
 
     def is_inspect_command(self, command):
+        """Проверка команды "осмотрись"."""
         return command.strip() == "осмотрись"
 
     def perform_inspection(self):
-        angles = [-15, 30, -30, 15]
+        """Выполнение осмотра."""
+        angles = [-15, 30, -30, 15]  # Углы поворота в градусах
         for angle in angles:
             self.rotate(angle)
             rospy.sleep(1)  # Пауза между поворотами
@@ -82,6 +117,7 @@ class VoiceNav(object):
         self.return_to_start()
 
     def rotate(self, angle):
+        """Выполнение поворота на заданный угол."""
         twist = Twist()
         angular_speed = 0.5  # Радианы в секунду
         target_angle = math.radians(angle)
@@ -97,46 +133,15 @@ class VoiceNav(object):
         rospy.loginfo(f"Rotated by {angle} degrees")
 
     def return_to_start(self):
+        """Возвращение в стартовую точку."""
         rospy.loginfo("Returning to start point after inspection")
         goal = self._goal_message_assemble(self.start_point)
         self.client.send_goal(goal, done_cb=self.return_home_cb)
         self.returning_home = True
         self.is_inspecting = False
 
-    def move_base_cb(self, status, result):
-        if self.goal_sent:  # Проверяем, была ли цель отправлена
-            if status == GoalStatus.PREEMPTED:
-                rospy.loginfo("Movement cancelled")
-            if status == GoalStatus.SUCCEEDED:
-                rospy.loginfo("Movement succeeded")
-                if not self.returning_home:
-                    rospy.loginfo("Robot has arrived at the destination and is waiting for a new command")
-            self.goal_sent = False  # Сбрасываем флаг после обработки цели
-        else:
-            rospy.logwarn("Received comm state ACTIVE when in simple state DONE")
-
-    def return_home_cb(self, status, result):
-        if self.returning_home:  # Проверяем, возвращается ли робот в стартовую точку
-            if status == GoalStatus.PREEMPTED:
-                rospy.loginfo("Return home cancelled")
-            if status == GoalStatus.SUCCEEDED:
-                rospy.loginfo("Returned to start point")
-            self.returning_home = False  # Сбрасываем флаг после возвращения в стартовую точку
-        else:
-            rospy.logwarn("Received comm state ACTIVE when in simple state DONE")
-
-    def load_rooms_config(self):
-        config_data_file = rospy.get_param('~rooms_config_file', str(
-            Path(__file__).parent.absolute()) + '/../data/rooms.toml')
-        rospy.loginfo(f"Loading rooms config file {config_data_file}")
-        try:
-            self.rooms_config = toml.load(config_data_file)
-            rospy.loginfo(f"Rooms config loaded: {self.rooms_config}")
-        except Exception as e:
-            rospy.logerr(f"TOML parser failed: {e}")
-            rospy.signal_shutdown("No valid TOML file")
-
     def _goal_message_assemble(self, point):
+        """Создание цели для move_base."""
         goal = MoveBaseGoal()
         goal.target_pose.header.frame_id = "map"
         goal.target_pose.header.stamp = rospy.Time.now()
@@ -150,11 +155,33 @@ class VoiceNav(object):
         rospy.loginfo("Created goal from point {} ".format(point))
         return goal
 
+    def move_base_cb(self, status, result):
+        """Обратный вызов для move_base."""
+        if status == GoalStatus.PREEMPTED:
+            rospy.loginfo("Movement cancelled")
+        if status == GoalStatus.SUCCEEDED:
+            rospy.loginfo("Movement succeeded")
+            if not self.returning_home:
+                rospy.loginfo("Robot has arrived at the destination and is waiting for a new command")
+            if self.current_point:
+                rospy.loginfo(f"Arrived at point: {self.current_point}")
+
+    def return_home_cb(self, status, result):
+        """Обратный вызов для возвращения в стартовую точку."""
+        if status == GoalStatus.SUCCEEDED:
+            rospy.loginfo("Returned to start point")
+        self.returning_home = False
+
     def on_shutdown(self):
+        """Действия при завершении работы узла."""
         rospy.loginfo("Shutdown VoiceNav")
         self.cmd_pub.publish(Twist())
         self.client.action_client.stop()
         rospy.sleep(0.5)
+
+    def spin(self):
+        """Основной цикл ROS."""
+        rospy.spin()
 
 if __name__ == '__main__':
     try:
