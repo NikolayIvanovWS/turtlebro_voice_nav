@@ -10,6 +10,7 @@ from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from std_msgs.msg import String
 from tf.transformations import quaternion_from_euler
 from geometry_msgs.msg import Twist
+from turtlebro_speech.srv import Speech, SpeechRequest
 
 class VoiceNav(object):
     def __init__(self):
@@ -19,16 +20,23 @@ class VoiceNav(object):
         rospy.loginfo("Waiting move_base action")
         self.client.wait_for_server()
         rospy.loginfo("Have move_base action")
-        
+
         # Создаем издатель для управления скоростью
         self.cmd_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=5)
-        
+
         # Подписываемся на топик с голосовыми командами
         self.voice_sub = rospy.Subscriber('/robohead_controller/voice_recognizer_pocketsphinx/cmds_recognizer/commands', String, self.voice_command_cb)
-        
+
         # Загружаем конфигурационные файлы
         self.load_points_config()
         self.load_commands_config()
+        self.load_speech_config()
+
+        # Инициализация клиента для сервиса озвучивания
+        self.speech_service = rospy.ServiceProxy('festival_speech', Speech)
+        rospy.loginfo("Waiting for festival_speech service")
+        self.speech_service.wait_for_service()
+        rospy.loginfo("Have festival_speech service")
 
         # Проверяем наличие стартовой точки
         if 'стартовуюточку' in self.points_config['points']:
@@ -38,20 +46,20 @@ class VoiceNav(object):
             rospy.signal_shutdown("Стартовая точка не найдена")
 
         # Инициализация переменных
-        self.current_point = None  # Текущая комната
+        self.current_point = None  # Текущая точка
         self.goal_sent = False  # Флаг отправки цели
         self.returning_home = False  # Флаг возвращения в стартовую точку
         self.is_inspecting = False  # Флаг выполнения осмотра
         rospy.loginfo("Init done")
 
     def load_points_config(self):
-        """Загрузка конфигурации комнат."""
+        """Загрузка конфигурации точек."""
         config_data_file = rospy.get_param('~points_config_file', str(
             Path(__file__).parent.absolute()) + '/../data/points.toml')
         rospy.loginfo(f"Loading points config file {config_data_file}")
         try:
             self.points_config = toml.load(config_data_file)
-            rospy.loginfo(f"points config loaded: {self.points_config}")
+            rospy.loginfo(f"Points config loaded: {self.points_config}")
         except Exception as e:
             rospy.logerr(f"TOML parser failed: {e}")
             rospy.signal_shutdown("No valid TOML file")
@@ -68,8 +76,24 @@ class VoiceNav(object):
             rospy.logerr(f"TOML parser failed: {e}")
             rospy.signal_shutdown("No valid TOML file")
 
+    def load_speech_config(self):
+        """Загрузка конфигурации напоминаний."""
+        config_data_file = rospy.get_param('~speech_config_file', str(
+            Path(__file__).parent.absolute()) + '/../data/speech.toml')
+        rospy.loginfo(f"Loading speech config file {config_data_file}")
+        try:
+            self.speech_config = toml.load(config_data_file)
+            rospy.loginfo(f"Speech config loaded: {self.speech_config}")
+        except Exception as e:
+            rospy.logerr(f"TOML parser failed: {e}")
+            rospy.signal_shutdown("No valid TOML file")
+
     def voice_command_cb(self, message):
         """Обработка голосовых команд."""
+        if self.returning_home:
+            rospy.loginfo("Robot is returning home, ignoring commands")
+            return
+
         command = message.data.strip()
         rospy.loginfo(f"Received command: {command}")
 
@@ -79,7 +103,7 @@ class VoiceNav(object):
                 point_name = self.get_point_name_from_command(command, phrase)
                 if point_name:
                     rospy.loginfo(f"Moving to point: {point_name}")
-                    self.current_point = point_name  # Сохраняем текущую комнату
+                    self.current_point = point_name
                     goal = self._goal_message_assemble(self.points_config['points'][point_name])
                     self.client.send_goal(goal, done_cb=self.move_base_cb)
                     self.goal_sent = True
@@ -93,10 +117,21 @@ class VoiceNav(object):
                 self.perform_inspection()
             return
 
+        # Проверка команды "напомни"
+        if command.startswith("напомни"):
+            reminder_key = command[len("напомни"):].strip()
+            if reminder_key in self.speech_config['reminders']:
+                reminder_text = self.speech_config['reminders'][reminder_key]
+                rospy.loginfo(f"Reminder found: {reminder_text}")
+                self.say_reminder(reminder_text)
+            else:
+                rospy.loginfo("Reminder not found")
+            return
+
         rospy.loginfo("Unknown command")
 
     def get_point_name_from_command(self, command, prefix):
-        """Извлечение названия комнаты из команды."""
+        """Извлечение названия точки из команды."""
         if command.startswith(prefix):
             point_name = command[len(prefix):].strip()
             if point_name in self.points_config['points']:
@@ -114,7 +149,7 @@ class VoiceNav(object):
             self.rotate(angle)
             rospy.sleep(1)  # Пауза между поворотами
         rospy.sleep(2)  # Пауза после завершения осмотра
-        self.return_to_start()
+        self.return_to_start_point()
 
     def rotate(self, angle):
         """Выполнение поворота на заданный угол."""
@@ -132,13 +167,25 @@ class VoiceNav(object):
         self.cmd_pub.publish(twist)  # Остановка вращения
         rospy.loginfo(f"Rotated by {angle} degrees")
 
-    def return_to_start(self):
-        """Возвращение в стартовую точку."""
-        rospy.loginfo("Returning to start point after inspection")
+    def say_reminder(self, text):
+        """Озвучивание напоминания и возвращение в стартовую точку."""
+        try:
+            # Озвучиваем напоминание
+            self.speech_service.call(SpeechRequest(data=text))
+            rospy.loginfo(f"Reminder spoken: {text}")
+            
+            # Возвращаемся в стартовую точку
+            rospy.sleep(1)  # Пауза для завершения озвучивания
+            self.return_to_start_point()
+        except Exception as e:
+            rospy.logerr(f"Failed to speak reminder: {e}")
+
+    def return_to_start_point(self):
+        """Перемещение в стартовую точку."""
+        rospy.loginfo("Returning to start point")
         goal = self._goal_message_assemble(self.start_point)
         self.client.send_goal(goal, done_cb=self.return_home_cb)
         self.returning_home = True
-        self.is_inspecting = False
 
     def _goal_message_assemble(self, point):
         """Создание цели для move_base."""
@@ -163,31 +210,27 @@ class VoiceNav(object):
             rospy.loginfo("Movement succeeded")
             if not self.returning_home:
                 rospy.loginfo("Robot has arrived at the destination and is waiting for a new command")
-            if self.current_point:
-                rospy.loginfo(f"Arrived at point: {self.current_point}")
 
     def return_home_cb(self, status, result):
         """Обратный вызов для возвращения в стартовую точку."""
+        if status == GoalStatus.PREEMPTED:
+            rospy.loginfo("Returning to start point cancelled")
         if status == GoalStatus.SUCCEEDED:
             rospy.loginfo("Returned to start point")
         self.returning_home = False
 
     def on_shutdown(self):
-        """Действия при завершении работы узла."""
-        rospy.loginfo("Shutdown VoiceNav")
-        self.cmd_pub.publish(Twist())
-        self.client.action_client.stop()
+        """Действия при завершении работы."""
+        rospy.loginfo("Shutting down voice navigation")
+        self.cmd_pub.publish(Twist())  # Остановка движения
+        self.client.cancel_all_goals()  # Отмена всех целей
         rospy.sleep(0.5)
-
-    def spin(self):
-        """Основной цикл ROS."""
-        rospy.spin()
 
 if __name__ == '__main__':
     try:
         rospy.init_node('voice_nav_node')
         robot = VoiceNav()
-        robot.spin()
+        rospy.spin()
     except rospy.ROSInterruptException:
         robot.on_shutdown()
-        rospy.loginfo("VoiceNav stopped due to ROS interrupt")
+        rospy.loginfo("Voice navigation stopped due to ROS interrupt")

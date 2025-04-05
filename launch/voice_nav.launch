@@ -2,7 +2,7 @@
   <!-- Arguments -->
   <arg name="fake_move_base" default="false"/>
 
-  <!-- Run Navigation for Patroll -->
+  <!-- Run Navigation for Patrol -->
   <include file="$(find turtlebro_patrol)/launch/navigation_slam.launch">
       <arg name="fake_move_base" value="$(arg fake_move_base)"/>
   </include>
@@ -11,5 +11,9 @@
   <node pkg="turtlebro_voice_nav" type="voice_nav.py" name="voice_nav_node" output="screen" required="true">
     <param name="points_config_file" value="$(find turtlebro_voice_nav)/data/points.toml"/>
     <param name="commands_config_file" value="$(find turtlebro_voice_nav)/data/commands.toml"/>
+    <param name="speech_config_file" value="$(find turtlebro_voice_nav)/data/speech.toml"/>
   </node>
+
+  <!-- Run Speech service -->
+  <include file="$(find turtlebro_speech)/launch/speech_service.launch"/>
 </launch>
