@@ -30,7 +30,7 @@ pip3 install toml
 
 ```
 cd ~/catkin_ws/src
-git clone https://github.com/your-repository/turtlebro_voice_nav.git
+git clone https://github.com/NikolayIvanovWS/turtlebro_voice_nav.git
 cd ..
 catkin_make --pkg=turtlebro_voice_nav
 ```
