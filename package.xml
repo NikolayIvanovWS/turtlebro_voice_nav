@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>turtlebro_voice_nav</name>
-  <version>0.0.1</version>
+  <version>1.0.0</version>
   <description>Пакет для управления роботом TurtleBro с использованием голосовых команд</description>
-  <maintainer email="cola@cactus.ru">Cola</maintainer>
+  <maintainer email="nikolay_ivanov@voltbro.com">Nikolay Ivanov</maintainer>
   <license>BSD</license>
 
   <buildtool_depend>catkin</buildtool_depend>
