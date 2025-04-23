@@ -116,6 +116,9 @@ class CommandHandler:
             rospy.sleep(1)
         except Exception as e:
             rospy.logerr(f"Не удалось произнести сообщение для фото: {e}")
+
+        # Возвращаемся в стартовую точку
+        self.return_to_start_point()
     
     def shutdown_package(self):
         """Завершение работы пакета."""
