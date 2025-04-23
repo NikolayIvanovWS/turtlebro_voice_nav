@@ -11,6 +11,8 @@ class CommandHandler:
         self.speech_config = speech_config
         self.movement_manager = movement_manager
         self.speech_service = speech_service
+        
+        self.photo_phrase = "сделай фото"
 
     def handle_command(self, command):
         """Обработка голосовых команд."""
@@ -46,6 +48,11 @@ class CommandHandler:
                 self.say_reminder(reminder_text)
             else:
                 rospy.loginfo("Напоминание не найдено")
+            return
+            
+        # Проверка команды "сделай фото"
+        if self.photo_phrase in command:
+            self.handle_photo_command()
             return
 
         rospy.loginfo("Неизвестная команда")
@@ -101,6 +108,15 @@ class CommandHandler:
         # Возвращаемся в стартовую точку
         self.return_to_start_point()
 
+    def handle_photo_command(self):
+        """Обработка команды 'сделай фото'."""
+        rospy.loginfo("Команда: Сделай фото")
+        try:
+            self.speech_service.call(SpeechRequest(data="Три и и и и и и. Два а а а а а. Одиииииин. Чиииииииииииз"))
+            rospy.sleep(1)
+        except Exception as e:
+            rospy.logerr(f"Не удалось произнести сообщение для фото: {e}")
+    
     def shutdown_package(self):
         """Завершение работы пакета."""
         rospy.loginfo("Завершение работы пакета...")
